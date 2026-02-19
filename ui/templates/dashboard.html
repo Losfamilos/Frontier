@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <h1>Executive Summary</h1>
+  <pre class="pre">{{ executive_summary }}</pre>
+</section>
+
+<section class="card">
+  <h2>ELT / Board topics to discuss</h2>
+  <pre class="pre">{{ discussion_topics }}</pre>
+</section>
+
+<section class="card">
+  <div class="row">
+    <h2>Top Themes (Bubble View)</h2>
+    <div class="muted">Click a theme to drill down into movements and sources.</div>
+  </div>
+
+  <div class="chartbox">
+    <canvas id="bubbleChart"></canvas>
+  </div>
+
+  <script>
+    window.BUBBLE_DATA = {{ bubble_data_json | safe }};
+  </script>
+</section>
+
+<section class="card">
+  <h2>All Themes</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Theme</th>
+        <th>Score</th>
+        <th>Accel</th>
+        <th>Confidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in themes %}
+      <tr>
+        <td><a href="/theme/{{ t.theme }}">{{ t.theme }}</a></td>
+        <td>{{ t.theme_score }}</td>
+        <td>{{ t.acceleration_arrow }}</td>
+        <td>{{ t.confidence_label }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}
