@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <h1>History</h1>
+  <div class="muted">Quarterly snapshots. Run: python cli.py snapshot</div>
+</section>
+
+<section class="card">
+  <h2>Theme trends</h2>
+  <div class="chartbox">
+    <canvas id="historyChart"></canvas>
+  </div>
+  <script>
+    window.HISTORY_QUARTERS = {{ quarters | tojson }};
+    window.HISTORY_SERIES = {{ series_json | safe }};
+  </script>
+</section>
+
+{% endblock %}

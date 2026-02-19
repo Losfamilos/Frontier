@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<section class="card">
+  <h1>{{ movement.name }}</h1>
+  <div class="pillrow">
+    <span class="pill">Theme: {{ movement.theme }}</span>
+    <span class="pill">Impact: {{ movement.impact_score }}</span>
+    <span class="pill">Stabilized: {{ movement.stabilized_impact }}</span>
+    <span class="pill">Accel: {{ movement.acceleration_arrow }}</span>
+    <span class="pill">Confidence: {{ movement.confidence_label }}</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Audit trail (how the score was calculated)</h2>
+  <div class="auditgrid">
+    <div>
+      <h3>Weights</h3>
+      <pre class="pre">{{ audit.weighting }}</pre>
+    </div>
+    <div>
+      <h3>Components (0..1)</h3>
+      <pre class="pre">{{ audit.components }}</pre>
+    </div>
+    <div>
+      <h3>Confidence details</h3>
+      <pre class="pre">{{ audit.confidence_meta }}</pre>
+    </div>
+    <div>
+      <h3>Acceleration details</h3>
+      <pre class="pre">{{ audit.acceleration_meta }}</pre>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Underlying datapoints (sources)</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Tier</th>
+        <th>Source</th>
+        <th>Signal</th>
+        <th>Title</th>
+        <th>Link</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in events %}
+      <tr>
+        <td>{{ e.date.date() }}</td>
+        <td>{{ e.source_tier }}</td>
+        <td>{{ e.source_name }}</td>
+        <td>{{ e.signal_type }}</td>
+        <td>{{ e.title }}</td>
+        <td><a href="{{ e.url }}" target="_blank">open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}
