@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import feedparser
+import httpx
 
 
 def _hash(uid: str) -> str:
@@ -10,19 +11,32 @@ def _hash(uid: str) -> str:
 
 
 def fetch_rss(feed_url: str, days: int = 365) -> List[Dict[str, Any]]:
-    feed = feedparser.parse(feed_url)
-    out = []
+    timeout = httpx.Timeout(30.0, connect=5.0)
+    headers = {"User-Agent": "frontier-radar/1.0 (+https://github.com/yourrepo)"}
+
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
+            r = client.get(feed_url)
+            r.raise_for_status()
+            content = r.content
+    except Exception as e:
+        print(f"[rss] ⚠️  failed to fetch {feed_url}: {type(e).__name__}: {e}", flush=True)
+        return []
+
+    feed = feedparser.parse(content)
+
+    out: List[Dict[str, Any]] = []
     cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
 
     for entry in feed.entries:
-        # try published, fallback updated
         ts = None
+
         if getattr(entry, "published_parsed", None):
-            ts = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc).timestamp()
             dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+            ts = dt.timestamp()
         elif getattr(entry, "updated_parsed", None):
-            ts = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc).timestamp()
             dt = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+            ts = dt.timestamp()
         else:
             continue
 
@@ -39,7 +53,10 @@ def fetch_rss(feed_url: str, days: int = 365) -> List[Dict[str, Any]]:
                 "date": dt,
                 "title": title,
                 "url": url,
-                "raw_text": getattr(entry, "summary", "") or getattr(entry, "description", "") or "",
+                "raw_text": getattr(entry, "summary", "")
+                or getattr(entry, "description", "")
+                or "",
             }
         )
+
     return out
