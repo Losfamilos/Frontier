@@ -264,8 +264,7 @@ def main():
         return
 
     if args.cmd == "serve":
-        from app import run_server
-
+        from radar_app import run_server
         run_server(host=args.host, port=args.port)
         return
 
