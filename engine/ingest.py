@@ -138,18 +138,16 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
     """
     total_inserted = 0
 
-   for idx, spec in enumerate(connector_specs, start=1):
-    print(f"[DEBUG] connector name = '{spec.name}'", flush=True)
-    name = getattr(spec, "name", "<unnamed>")
+    for idx, spec in enumerate(connector_specs, start=1):
+        name = getattr(spec, "name", "<unnamed>")
+        src = getattr(spec, "source_name", "<source>")
+        tier = getattr(spec, "source_tier", 0)
+        sig = getattr(spec, "signal_type", "<signal>")
 
-    # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
-    if name.strip() == "swift_rss":
-        print("[ingest] skipping swift_rss (temporary)", flush=True)
-        continue
-
-    src = getattr(spec, "source_name", "<source>")
-    tier = getattr(spec, "source_tier", 0)
-    sig = getattr(spec, "signal_type", "<signal>")
+        # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
+        if name.strip().lower() == "swift_rss":
+            print("[ingest] skipping swift_rss (temporary)", flush=True)
+            continue
 
         print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
 
@@ -161,7 +159,6 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
 
         print(f"[ingest] {name}: fetched {len(fetched)} items", flush=True)
 
-        # Decorate + normalize immediately
         normalized: List[Dict[str, Any]] = []
         for it in fetched:
             it["source_name"] = src
@@ -169,7 +166,6 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
             it["signal_type"] = sig
             normalized.append(normalize_item(it, src, tier, sig))
 
-        # Dedup within this connector batch
         normalized = dedup_items(normalized)
 
         inserted = upsert_events(normalized, batch_size=batch_size)
