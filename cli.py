@@ -244,13 +244,16 @@ def main():
         print("DB initialized.")
         return
 
-    if args.cmd == "ingest":
-        from connectors.registry import list_connectors
-        from engine.ingest import ingest_from_connectors
+   if args.cmd == "ingest":
+    from connectors.registry import list_connectors
+    from engine.ingest import ingest_from_connectors
 
-        inserted = ingest_from_connectors(list_connectors(), days=args.days)
-        print(f"Ingested {inserted} new events.")
-        return
+    conns = [c for c in list_connectors() if c.name != "swift_rss"]
+    print(f"[ingest] skipping swift_rss (temporary)", flush=True)
+
+    inserted = ingest_from_connectors(conns, days=args.days)
+    print(f"Ingested {inserted} new events.")
+    return
 
     if args.cmd == "build":
         result = build(days=args.days, cluster_threshold=args.cluster_threshold)
