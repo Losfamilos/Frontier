@@ -138,20 +138,23 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
     """
     total_inserted = 0
 
-    for idx, spec in enumerate(connector_specs, start=1):
-        name = getattr(spec, "name", "<unnamed>")
-        src = getattr(spec, "source_name", "<source>")
-        tier = getattr(spec, "source_tier", 0)
-        sig = getattr(spec, "signal_type", "<signal>")
+  for idx, spec in enumerate(connector_specs, start=1):
+    name = getattr(spec, "name", "<unnamed>")
+    src = getattr(spec, "source_name", "<source>")
+    tier = getattr(spec, "source_tier", 0)
+    sig = getattr(spec, "signal_type", "<signal>")
 
-        # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
-        if name.strip().lower() == "swift_rss":
-            print("[ingest] skipping swift_rss (temporary)", flush=True)
-            continue
+    # DEBUG: show hidden chars (one line per connector)
+    print(f"[debug] connector name repr={name!r}", flush=True)
 
-        print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
+    # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
+    if "swift" in name.strip().lower():
+        print("[ingest] skipping swift (temporary)", flush=True)
+        continue
 
-        try:
+    print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
+
+    try:
             fetched = spec.fetch(days=days) or []
         except Exception as e:
             print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
