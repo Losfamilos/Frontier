@@ -138,11 +138,17 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
     """
     total_inserted = 0
 
-    for idx, spec in enumerate(connector_specs, start=1):
-        name = getattr(spec, "name", "<unnamed>")
-        src = getattr(spec, "source_name", "<source>")
-        tier = getattr(spec, "source_tier", 0)
-        sig = getattr(spec, "signal_type", "<signal>")
+   for idx, spec in enumerate(connector_specs, start=1):
+    name = getattr(spec, "name", "<unnamed>")
+
+    # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
+    if name.strip() == "swift_rss":
+        print("[ingest] skipping swift_rss (temporary)", flush=True)
+        continue
+
+    src = getattr(spec, "source_name", "<source>")
+    tier = getattr(spec, "source_tier", 0)
+    sig = getattr(spec, "signal_type", "<signal>")
 
         print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
 
