@@ -24,7 +24,9 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
         "sortOrder": "descending",
     }
 
-    with httpx.Client(timeout=20, follow_redirects=True) as client:
+    timeout = httpx.Timeout(30.0, connect=5.0)
+    headers = {"User-Agent": "frontier-radar/1.0"}
+    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
         r = client.get(ARXIV_API, params=params)
         r.raise_for_status()
 
