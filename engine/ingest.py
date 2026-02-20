@@ -139,6 +139,7 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
     total_inserted = 0
 
    for idx, spec in enumerate(connector_specs, start=1):
+    print(f"[DEBUG] connector name = '{spec.name}'", flush=True)
     name = getattr(spec, "name", "<unnamed>")
 
     # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
