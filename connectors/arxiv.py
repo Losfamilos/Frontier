@@ -10,7 +10,7 @@ def _hash(uid: str) -> str:
     return hashlib.sha256(uid.encode("utf-8")).hexdigest()[:32]
 
 
-ARXIV_API = "http://export.arxiv.org/api/query"
+ARXIV_API = "https://export.arxiv.org/api/query"
 
 
 def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict[str, Any]]:
@@ -24,7 +24,7 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
         "sortOrder": "descending",
     }
 
-    with httpx.Client(timeout=20) as client:
+    with httpx.Client(timeout=20, follow_redirects=True) as client:
         r = client.get(ARXIV_API, params=params)
         r.raise_for_status()
 
