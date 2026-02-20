@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import timezone
-from typing import Any, Dict, List, Sequence, Set, Tuple
+from typing import Any, Dict, List, Sequence, Set
 
 from sqlmodel import select
 
@@ -138,23 +138,21 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
     """
     total_inserted = 0
 
-  for idx, spec in enumerate(connector_specs, start=1):
-    name = getattr(spec, "name", "<unnamed>")
-    src = getattr(spec, "source_name", "<source>")
-    tier = getattr(spec, "source_tier", 0)
-    sig = getattr(spec, "signal_type", "<signal>")
+    for idx, spec in enumerate(connector_specs, start=1):
+        name = getattr(spec, "name", "<unnamed>")
+        src = getattr(spec, "source_name", "<source>")
+        tier = getattr(spec, "source_tier", 0)
+        sig = getattr(spec, "signal_type", "<signal>")
 
-    # DEBUG: show hidden chars (one line per connector)
-    print(f"[debug] connector name repr={name!r}", flush=True)
+        # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
+        # (Matches any connector name containing "swift")
+        if "swift" in name.strip().lower():
+            print("[ingest] skipping swift (temporary)", flush=True)
+            continue
 
-    # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
-    if "swift" in name.strip().lower():
-        print("[ingest] skipping swift (temporary)", flush=True)
-        continue
+        print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
 
-    print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
-
-    try:
+        try:
             fetched = spec.fetch(days=days) or []
         except Exception as e:
             print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
@@ -169,6 +167,7 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
             it["signal_type"] = sig
             normalized.append(normalize_item(it, src, tier, sig))
 
+        # Dedup within this connector batch
         normalized = dedup_items(normalized)
 
         inserted = upsert_events(normalized, batch_size=batch_size)
