@@ -12,7 +12,7 @@ def _hash(uid: str) -> str:
 
 def fetch_rss(feed_url: str, days: int = 365) -> List[Dict[str, Any]]:
     timeout = httpx.Timeout(30.0, connect=5.0)
-    headers = {"User-Agent": "frontier-radar/1.0 (+https://github.com/yourrepo)"}
+    headers = {"User-Agent": "frontier-radar/1.0"}
 
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
@@ -20,7 +20,7 @@ def fetch_rss(feed_url: str, days: int = 365) -> List[Dict[str, Any]]:
             r.raise_for_status()
             content = r.content
     except Exception as e:
-        print(f"[rss] ⚠️  failed to fetch {feed_url}: {type(e).__name__}: {e}", flush=True)
+        print(f"[rss] failed to fetch {feed_url}: {type(e).__name__}: {e}", flush=True)
         return []
 
     feed = feedparser.parse(content)
@@ -45,6 +45,7 @@ def fetch_rss(feed_url: str, days: int = 365) -> List[Dict[str, Any]]:
 
         url = getattr(entry, "link", "")
         title = getattr(entry, "title", "").strip()
+
         uid = _hash(f"{feed_url}|{url}|{title}|{dt.isoformat()}")
 
         out.append(
@@ -61,30 +62,16 @@ def fetch_rss(feed_url: str, days: int = 365) -> List[Dict[str, Any]]:
 
     return out
 
+
+# --- REGISTER CONNECTOR ---
 from connectors.registry import ConnectorSpec, register
 
-register(ConnectorSpec(
-    name="rss",
-    source_name="RSS",
-    source_tier=2,
-    signal_type="news",
-    fetch=FETCH_FUNCTION_HER,
-))
-
-# --- connector registration (must run at import time) ---
-from connectors.registry import ConnectorSpec, register
-
-# Find the best fetch function in this module
-# Try common names; replace with your actual function if needed
-_fetch = globals().get("fetch") or globals().get("fetch_rss") or globals().get("load") or globals().get("run")
-
-if _fetch is None:
-    raise RuntimeError("rss connector: could not find a fetch function (expected fetch/fetch_rss/load/run).")
-
-register(ConnectorSpec(
-    name="rss",
-    source_name="RSS",
-    source_tier=2,
-    signal_type="news",
-    fetch=_fetch,
-))
+register(
+    ConnectorSpec(
+        name="rss",
+        source_name="RSS",
+        source_tier=2,
+        signal_type="news",
+        fetch=fetch_rss,
+    )
+)
