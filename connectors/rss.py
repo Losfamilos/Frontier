@@ -70,3 +70,21 @@ register(ConnectorSpec(
     signal_type="news",
     fetch=FETCH_FUNCTION_HER,
 ))
+
+# --- connector registration (must run at import time) ---
+from connectors.registry import ConnectorSpec, register
+
+# Find the best fetch function in this module
+# Try common names; replace with your actual function if needed
+_fetch = globals().get("fetch") or globals().get("fetch_rss") or globals().get("load") or globals().get("run")
+
+if _fetch is None:
+    raise RuntimeError("rss connector: could not find a fetch function (expected fetch/fetch_rss/load/run).")
+
+register(ConnectorSpec(
+    name="rss",
+    source_name="RSS",
+    source_tier=2,
+    signal_type="news",
+    fetch=_fetch,
+))
