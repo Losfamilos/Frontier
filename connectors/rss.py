@@ -60,3 +60,13 @@ def fetch_rss(feed_url: str, days: int = 365) -> List[Dict[str, Any]]:
         )
 
     return out
+
+from connectors.registry import ConnectorSpec, register
+
+register(ConnectorSpec(
+    name="rss",
+    source_name="RSS",
+    source_tier=2,
+    signal_type="news",
+    fetch=FETCH_FUNCTION_HER,
+))
