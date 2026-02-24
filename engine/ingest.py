@@ -1,6 +1,5 @@
 # engine/ingest.py
 from __future__ import annotations
-
 import inspect
 from datetime import timezone
 from typing import Any, Dict, List, Sequence, Set
@@ -155,6 +154,19 @@ def _required_non_default_args(fn) -> int:
             required += 1
     return required
 
+def _required_non_default_args(fn) -> int:
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return 0
+
+    required = 0
+    for p in sig.parameters.values():
+        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            continue
+        if p.default is inspect._empty:
+            required += 1
+    return required
 
 def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 250) -> int:
     """
