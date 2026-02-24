@@ -81,10 +81,13 @@ def compute_acceleration(events: List[Dict[str, Any]], baseline_counts: Dict[str
     now = datetime.now(timezone.utc)
     cutoff_90 = now - timedelta(days=90)
 
-    last90 = {k: 0 for k in baseline_counts}
     for e in events:
-        if e["date"].astimezone(timezone.utc) >= cutoff_90:
-            last90[e["signal_type"]] += 1
+    d = e["date"]
+    # tolerate naive datetimes (assume UTC)
+    if getattr(d, "tzinfo", None) is None:
+        d = d.replace(tzinfo=timezone.utc)
+    if d.astimezone(timezone.utc) >= cutoff_90:
+        last90[e["signal_type"]] += 1
 
     ratios = []
     ratio_detail = {}
