@@ -73,3 +73,19 @@ register(ConnectorSpec(
     signal_type="research",
     fetch=FETCH_FUNCTION_HER,
 ))
+
+# --- connector registration (must run at import time) ---
+from connectors.registry import ConnectorSpec, register
+
+_fetch = globals().get("fetch") or globals().get("fetch_arxiv") or globals().get("load") or globals().get("run")
+
+if _fetch is None:
+    raise RuntimeError("arxiv connector: could not find a fetch function (expected fetch/fetch_arxiv/load/run).")
+
+register(ConnectorSpec(
+    name="arxiv",
+    source_name="arXiv",
+    source_tier=2,
+    signal_type="research",
+    fetch=_fetch,
+))
