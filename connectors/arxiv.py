@@ -16,6 +16,8 @@ ARXIV_API = "https://export.arxiv.org/api/query"
 
 
 def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict[str, Any]]:
+    # arXiv returns Atom XML. We'll parse minimal fields.
+    # Example query: all:"tokenized deposits" OR all:"post-quantum cryptography finance"
     params = {
         "search_query": query,
         "start": 0,
@@ -24,6 +26,7 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
         "sortOrder": "descending",
     }
 
+<<<<<<< HEAD
     timeout = httpx.Timeout(30.0, connect=5.0)
     headers = {"User-Agent": "frontier-radar/1.0"}
 
@@ -74,6 +77,16 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
     ns = {"atom": "http://www.w3.org/2005/Atom"}
 
     out: List[Dict[str, Any]] = []
+=======
+    with httpx.Client(timeout=20, follow_redirects=True) as client:
+        r = client.get(ARXIV_API, params=params)
+        r.raise_for_status()
+
+    root = ET.fromstring(r.text)
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    out = []
+
+>>>>>>> dca9e9f (Resolve merge conflicts after pulling origin/main)
     cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
 
     for entry in root.findall("atom:entry", ns):
@@ -84,7 +97,6 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
         published_el = entry.find("atom:published", ns)
         if published_el is None:
             continue
-
         dt = datetime.fromisoformat(published_el.text.replace("Z", "+00:00"))
         if dt.timestamp() < cutoff:
             continue
@@ -103,11 +115,9 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
                 "raw_text": raw_text,
             }
         )
-
     return out
 
-
-# --- REGISTER CONNECTOR ---
+# --- REGISTER CONNECTOR (runs at import time) ---
 from connectors.registry import ConnectorSpec, register
 
 register(

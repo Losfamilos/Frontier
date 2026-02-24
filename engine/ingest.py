@@ -1,6 +1,5 @@
-# engine/ingest.py
 from __future__ import annotations
-import inspect
+
 from datetime import timezone
 from typing import Any, Dict, List, Sequence, Set
 
@@ -20,7 +19,6 @@ def normalize_item(item: Dict[str, Any], source_name: str, source_tier: int, sig
     url = (item.get("url") or "").strip()
     raw_text = (item.get("raw_text") or "").strip()
 
-    # v1 summary = first 240 chars (deterministic); can upgrade later.
     summary = raw_text or title
     summary = " ".join(summary.split())[:240]
 
@@ -40,13 +38,9 @@ def normalize_item(item: Dict[str, Any], source_name: str, source_tier: int, sig
 
 
 def _configure_sqlite_pragmas(session) -> None:
-    """
-    Helps with concurrency/locking in SQLite (Codespaces).
-    Safe no-op-ish for other DBs: if it fails, we ignore.
-    """
     try:
         session.exec("PRAGMA journal_mode=WAL;")
-        session.exec("PRAGMA busy_timeout=5000;")  # ms
+        session.exec("PRAGMA busy_timeout=5000;")
     except Exception:
         pass
 
@@ -63,12 +57,6 @@ def _existing_event_uids(session, uids: List[str]) -> Set[str]:
 
 
 def upsert_events(items: List[Dict[str, Any]], batch_size: int = 250) -> int:
-    """
-    Fast path:
-    - prefetch existing event_uids per batch
-    - insert new events in bulk, commit once
-    - insert refs in bulk, commit once
-    """
     if not items:
         return 0
 
@@ -108,7 +96,6 @@ def upsert_events(items: List[Dict[str, Any]], batch_size: int = 250) -> int:
             session.add_all(new_events)
             session.commit()
 
-            # Refresh IDs so we can create EventSourceRef rows.
             new_refs: List[EventSourceRef] = []
             for ev in new_events:
                 session.refresh(ev)
@@ -129,57 +116,7 @@ def upsert_events(items: List[Dict[str, Any]], batch_size: int = 250) -> int:
     return inserted_total
 
 
-def _required_non_default_args(fn) -> int:
-    """
-    Returns how many required positional-or-keyword args (without defaults)
-    the callable needs. Used to skip "template/raw" connectors like:
-      - fetch_rss(feed_url, days=...)
-      - fetch_arxiv(query, days=..., max_results=...)
-    while still running "baked" connectors like:
-      - lambda days=...: fetch_rss(ECB_URL, days)
-    """
-    try:
-        sig = inspect.signature(fn)
-    except (TypeError, ValueError):
-        # If we can't inspect it, assume it's runnable (best effort).
-        return 0
-
-    required = 0
-    for p in sig.parameters.values():
-        # ignore *args/**kwargs
-        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
-            continue
-        # required if no default
-        if p.default is inspect._empty:
-            required += 1
-    return required
-
-def _required_non_default_args(fn) -> int:
-    try:
-        sig = inspect.signature(fn)
-    except (TypeError, ValueError):
-        return 0
-
-    required = 0
-    for p in sig.parameters.values():
-        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
-            continue
-        if p.default is inspect._empty:
-            required += 1
-    return required
-
 def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 250) -> int:
-    """
-    Runs connectors one-by-one with:
-    - progress logging
-    - per-connector exception isolation
-    - streaming normalize + batch insert
-
-    NOTE:
-    We keep "raw/template" connectors (e.g. rss/arxiv) registered for Scout,
-    but ingestion should only run connectors whose fetch() is runnable without
-    extra required args.
-    """
     total_inserted = 0
 
     for idx, spec in enumerate(connector_specs, start=1):
@@ -193,29 +130,10 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
             print("[ingest] skipping swift (temporary)", flush=True)
             continue
 
-        # Skip template/raw connectors that require args (used by Scout)
-        req = _required_non_default_args(getattr(spec, "fetch", None))
-        if req > 0:
-            print(f"[ingest] skipping template connector {name} (requires {req} args)", flush=True)
-            continue
-
         print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
 
-                req = _required_non_default_args(getattr(spec, "fetch", None))
-        if req > 0:
-            print(f"[ingest] skipping template connector {name} (requires {req} args)", flush=True)
-            continue
-            
         try:
-            # Most baked connectors accept days as kwarg; if not, they should ignore via **kwargs
             fetched = spec.fetch(days=days) or []
-        except TypeError:
-            # Some zero-arg connectors might not accept days; retry without it
-            try:
-                fetched = spec.fetch() or []
-            except Exception as e:
-                print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
-                continue
         except Exception as e:
             print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
             continue
@@ -229,7 +147,6 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
             it["signal_type"] = sig
             normalized.append(normalize_item(it, src, tier, sig))
 
-        # Dedup within this connector batch
         normalized = dedup_items(normalized)
 
         inserted = upsert_events(normalized, batch_size=batch_size)
