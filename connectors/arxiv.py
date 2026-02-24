@@ -63,3 +63,13 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
             }
         )
     return out
+
+from connectors.registry import ConnectorSpec, register
+
+register(ConnectorSpec(
+    name="arxiv",
+    source_name="arXiv",
+    source_tier=2,
+    signal_type="research",
+    fetch=FETCH_FUNCTION_HER,
+))
