@@ -2,8 +2,18 @@ import argparse
 import json
 from datetime import datetime
 
+from sqlmodel import select
+
 
 def register_default_connectors():
+    """
+    Keep this idempotent-ish: if registry already has connectors, don't double register.
+    """
+    from connectors.registry import list_connectors
+
+    if list_connectors():
+        return
+
     from connectors.arxiv import fetch_arxiv
     from connectors.registry import ConnectorSpec, register
     from connectors.rss import fetch_rss
@@ -60,16 +70,7 @@ def register_default_connectors():
     )
 
 
-def baseline_counts_90d_for_movement(events):
-    counts = {k: 0 for k in ["research", "capital", "regulatory", "infra", "cross"]}
-    for e in events:
-        counts[e.signal_type] += 1
-    return {k: counts[k] / 4.0 for k in counts}
-
-
 def movement_history_impacts(movement_id: int):
-    from sqlmodel import select
-
     from database import get_session
     from models import MovementSnapshot
 
@@ -79,13 +80,12 @@ def movement_history_impacts(movement_id: int):
             .where(MovementSnapshot.movement_id == movement_id)
             .order_by(MovementSnapshot.created_at)
         ).all()
-    return [s.impact_score for s in snaps]
+        return [s.impact_score for s in snaps]
 
 
 def build(days: int = 365, cluster_threshold: float = 0.55):
-    from sqlmodel import select
-
     from database import get_session
+    from engine.baseline import baseline_counts_90d_for_movement
     from engine.cluster import build_movements
     from engine.score import (
         audit_payload,
@@ -97,20 +97,29 @@ def build(days: int = 365, cluster_threshold: float = 0.55):
     )
     from engine.summary import generate_discussion_topics, generate_executive_summary
     from engine.themes import aggregate_themes
-    from models import Event, Movement, MovementEventLink
+    from models import Event, Movement
 
+    # 1) cluster events -> movements (creates/updates Movement + MovementEventLink)
     n = build_movements(days=days, distance_threshold=cluster_threshold)
 
+    # 2) compute scoring per movement
     with get_session() as session:
         movements = session.exec(select(Movement)).all()
 
         for m in movements:
+            # If you later wire ORM relationship, you can replace this with m.events
+            # For now, pull events via join on MovementEventLink
+            from models import MovementEventLink
+
             links = session.exec(select(MovementEventLink).where(MovementEventLink.movement_id == m.id)).all()
-            ev_ids = [l.event_id for l in links]
+            ev_ids = [l.event_id for l in links if l.event_id is not None]
             if not ev_ids:
                 continue
 
             evs = session.exec(select(Event).where(Event.id.in_(ev_ids))).all()
+            if not evs:
+                continue
+
             ev_dicts = [
                 {
                     "signal_type": e.signal_type,
@@ -125,7 +134,8 @@ def build(days: int = 365, cluster_threshold: float = 0.55):
             impact = compute_impact(components)
             conf_score, conf_label, conf_meta = compute_confidence(ev_dicts, components)
 
-            baseline90 = baseline_counts_90d_for_movement(evs)
+            # ✅ Correct baseline: historical window excluding last 90 days
+            baseline90 = baseline_counts_90d_for_movement(session, m.id)
             accel_raw, arrow, accel_meta = compute_acceleration(ev_dicts, baseline90)
 
             history = movement_history_impacts(m.id)
@@ -153,11 +163,16 @@ def build(days: int = 365, cluster_threshold: float = 0.55):
 
             audit = audit_payload(components, impact, conf_meta, accel_meta)
             audit["movement_event_count"] = len(evs)
-            audit["tier1_sources"] = len({e.source_name for e in evs if e.source_tier == 1})
+            # source_name might not be present on Event; guard it
+            audit["tier1_sources"] = len({getattr(e, "source_name", None) for e in evs if e.source_tier == 1})
             m.audit_json = json.dumps(audit)
+
             session.add(m)
 
         session.commit()
+
+    # 3) themes + summaries
+    from database import get_session
 
     with get_session() as session:
         movements = session.exec(select(Movement)).all()
@@ -186,8 +201,6 @@ def build(days: int = 365, cluster_threshold: float = 0.55):
 
 
 def snapshot():
-    from sqlmodel import select
-
     from database import get_session
     from engine.snapshot import create_snapshot
     from engine.summary import generate_discussion_topics, generate_executive_summary
@@ -211,6 +224,7 @@ def snapshot():
     themes = aggregate_themes(m_dicts)
     exec_sum = generate_executive_summary(themes, m_dicts)
     discuss = generate_discussion_topics(themes, m_dicts)
+
     qid = create_snapshot(themes, exec_sum, discuss)
     return qid
 
@@ -235,6 +249,8 @@ def main():
     p_serve.add_argument("--port", type=int, default=8000)
 
     args = parser.parse_args()
+
+    # Ensure connectors exist for ingest
     register_default_connectors()
 
     if args.cmd == "init-db":
@@ -264,9 +280,17 @@ def main():
         return
 
     if args.cmd == "serve":
-        from radar_app import run_server
+        try:
+            import uvicorn  # type: ignore
+        except Exception:
+            raise SystemExit("Missing dependency: uvicorn. Install with: pip install uvicorn")
 
-        run_server(host=args.host, port=args.port)
+        try:
+            from radar_app import app  # expects FastAPI app in radar_app.py
+        except Exception:
+            raise SystemExit("radar_app.py with FastAPI `app` not found (or import failed).")
+
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
         return
 
 
