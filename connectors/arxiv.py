@@ -1,4 +1,6 @@
 import hashlib
+import random
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Dict, List
@@ -25,14 +27,53 @@ def fetch_arxiv(query: str, days: int = 365, max_results: int = 50) -> List[Dict
     timeout = httpx.Timeout(30.0, connect=5.0)
     headers = {"User-Agent": "frontier-radar/1.0"}
 
+    # ---- fetch with retry/backoff for 429 ----
+    last_exc: Exception | None = None
+    r = None
+
     with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
-        r = client.get(ARXIV_API, params=params)
-        r.raise_for_status()
+        for attempt in range(1, 4):  # 3 attempts
+            try:
+                r = client.get(ARXIV_API, params=params)
+                r.raise_for_status()
+                break
+            except httpx.HTTPStatusError as e:
+                last_exc = e
+                status = e.response.status_code if e.response is not None else None
+
+                if status == 429:
+                    # exponential backoff + jitter
+                    sleep_s = (2 ** (attempt - 1)) + random.random()
+                    print(
+                        f"[arxiv] 429 rate limited, retrying in {sleep_s:.1f}s (attempt {attempt}/3)",
+                        flush=True,
+                    )
+                    time.sleep(sleep_s)
+                    continue
+
+                # other HTTP errors should surface
+                raise
+            except Exception as e:
+                last_exc = e
+                # transient network error: short backoff and retry
+                sleep_s = 0.5 * attempt + random.random() * 0.5
+                print(
+                    f"[arxiv] transient error {type(e).__name__}, retrying in {sleep_s:.1f}s (attempt {attempt}/3)",
+                    flush=True,
+                )
+                time.sleep(sleep_s)
+                continue
+        else:
+            # exhausted retries -> degrade gracefully
+            print(f"[arxiv] failed after retries: {type(last_exc).__name__}: {last_exc}", flush=True)
+            return []
+
+    assert r is not None  # for type checkers
 
     root = ET.fromstring(r.text)
     ns = {"atom": "http://www.w3.org/2005/Atom"}
 
-    out = []
+    out: List[Dict[str, Any]] = []
     cutoff = datetime.now(timezone.utc).timestamp() - (days * 86400)
 
     for entry in root.findall("atom:entry", ns):
