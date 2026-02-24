@@ -1,6 +1,7 @@
 # engine/ingest.py
 from __future__ import annotations
 
+import inspect
 from datetime import timezone
 from typing import Any, Dict, List, Sequence, Set
 
@@ -129,12 +130,43 @@ def upsert_events(items: List[Dict[str, Any]], batch_size: int = 250) -> int:
     return inserted_total
 
 
+def _required_non_default_args(fn) -> int:
+    """
+    Returns how many required positional-or-keyword args (without defaults)
+    the callable needs. Used to skip "template/raw" connectors like:
+      - fetch_rss(feed_url, days=...)
+      - fetch_arxiv(query, days=..., max_results=...)
+    while still running "baked" connectors like:
+      - lambda days=...: fetch_rss(ECB_URL, days)
+    """
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        # If we can't inspect it, assume it's runnable (best effort).
+        return 0
+
+    required = 0
+    for p in sig.parameters.values():
+        # ignore *args/**kwargs
+        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
+            continue
+        # required if no default
+        if p.default is inspect._empty:
+            required += 1
+    return required
+
+
 def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 250) -> int:
     """
     Runs connectors one-by-one with:
     - progress logging
     - per-connector exception isolation
     - streaming normalize + batch insert
+
+    NOTE:
+    We keep "raw/template" connectors (e.g. rss/arxiv) registered for Scout,
+    but ingestion should only run connectors whose fetch() is runnable without
+    extra required args.
     """
     total_inserted = 0
 
@@ -145,15 +177,28 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
         sig = getattr(spec, "signal_type", "<signal>")
 
         # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
-        # (Matches any connector name containing "swift")
         if "swift" in name.strip().lower():
             print("[ingest] skipping swift (temporary)", flush=True)
+            continue
+
+        # Skip template/raw connectors that require args (used by Scout)
+        req = _required_non_default_args(getattr(spec, "fetch", None))
+        if req > 0:
+            print(f"[ingest] skipping template connector {name} (requires {req} args)", flush=True)
             continue
 
         print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
 
         try:
+            # Most baked connectors accept days as kwarg; if not, they should ignore via **kwargs
             fetched = spec.fetch(days=days) or []
+        except TypeError:
+            # Some zero-arg connectors might not accept days; retry without it
+            try:
+                fetched = spec.fetch() or []
+            except Exception as e:
+                print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
+                continue
         except Exception as e:
             print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
             continue
