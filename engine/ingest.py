@@ -201,6 +201,11 @@ def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 2
 
         print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
 
+                req = _required_non_default_args(getattr(spec, "fetch", None))
+        if req > 0:
+            print(f"[ingest] skipping template connector {name} (requires {req} args)", flush=True)
+            continue
+            
         try:
             # Most baked connectors accept days as kwarg; if not, they should ignore via **kwargs
             fetched = spec.fetch(days=days) or []
