@@ -52,7 +52,7 @@ def register_default_connectors():
             source_name="BIS",
             source_tier=1,
             signal_type="regulatory",
-            fetch=lambda days=365: fetch_rss("https://www.bis.org/doclist/rss.htm", days=days),
+            fetch=lambda days=365: fetch_rss("https://www.bis.org/doclist/rss.xml", days=days),
         )
     )
 
