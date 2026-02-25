@@ -1,0 +1,22 @@
+
+# python
+__pycache__/
+*.pyc
+
+# local db
+*.db
+
+# local artifacts
+.env
+.DS_Store
+
+# python
+__pycache__/
+*.pyc
+
+# local db
+*.db
+
+# local artifacts
+.env
+.DS_Store

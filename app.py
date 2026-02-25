@@ -152,3 +152,12 @@ def history(request: Request):
 
 def run_server(host: str = "127.0.0.1", port: int = 8000):
     uvicorn.run("app:app", host=host, port=port, reload=False)
+
+@app.get("/api/frontier/themes")
+def frontier_themes(top_n: int = 6, events_per_theme: int = 5):
+    """
+    Frontier Theme Briefs (board-grade)
+    """
+    from engine.api_frontier import get_frontier_theme_briefs
+    return get_frontier_theme_briefs(top_n=top_n, events_per_theme=events_per_theme)
+
