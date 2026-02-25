@@ -17,48 +17,6 @@ def register_default_connectors():
     from connectors.arxiv import fetch_arxiv
     from connectors.registry import ConnectorSpec, register
     from connectors.rss import fetch_rss
-
-    register(
-        ConnectorSpec(
-            name="arxiv_fininfra",
-            source_name="arXiv",
-            source_tier=3,
-            signal_type="research",
-            fetch=lambda days=365: fetch_arxiv(
-                query='all:"tokenized deposits" OR all:"post-quantum cryptography" OR all:"zero-knowledge" OR all:"MPC" OR all:"settlement" OR all:"collateral" OR all:"fully homomorphic encryption"',
-                days=days,
-                max_results=80,
-            ),
-        )
-    )
-
-    register(
-        ConnectorSpec(
-            name="ecb_rss",
-            source_name="ECB",
-            source_tier=1,
-            signal_type="regulatory",
-            fetch=lambda days=365: fetch_rss("https://www.ecb.europa.eu/rss/press.html", days=days),
-        )
-    )
-    register(
-        ConnectorSpec(
-            name="bis_rss",
-            source_name="BIS",
-            source_tier=1,
-            signal_type="regulatory",
-            fetch=lambda days=365: fetch_rss("https://www.bis.org/doclist/rss.htm", days=days),
-        )
-    )
-    register(
-        ConnectorSpec(
-            name="swift_rss",
-            source_name="SWIFT",
-            source_tier=1,
-            signal_type="infra",
-            fetch=lambda days=365: fetch_rss("https://www.swift.com/rss.xml", days=days),
-        )
-    )
     register(
         ConnectorSpec(
             name="a16z_rss",
