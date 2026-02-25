@@ -1,4 +1,13 @@
+# Python
+__pycache__/
+*.pyc
 
+# Local DB
+*.db
+
+# Local artifacts
+.env
+.DS_Store
 # python
 __pycache__/
 *.pyc
