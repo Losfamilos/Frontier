@@ -7,13 +7,56 @@ from sqlmodel import select
 
 def register_default_connectors():
     """
-    Keep this idempotent-ish: if registry already has connectors, don't double register.
+    Idempotent registration of default connectors.
+    Registers any missing defaults without early-returning if registry is non-empty.
     """
-
+    from connectors.registry import list_connectors, ConnectorSpec, register
     from connectors.arxiv import fetch_arxiv
-    from connectors.registry import ConnectorSpec, register
     from connectors.rss import fetch_rss
-    register(
+
+    existing = {c.name for c in list_connectors()}
+
+    def ensure(spec: ConnectorSpec):
+        if spec.name in existing:
+            return
+        register(spec)
+        existing.add(spec.name)
+
+    ensure(
+        ConnectorSpec(
+            name="arxiv_fininfra",
+            source_name="arXiv",
+            source_tier=3,
+            signal_type="research",
+            fetch=lambda days=365: fetch_arxiv(
+                query='all:"tokenized deposits" OR all:"post-quantum cryptography" OR all:"zero-knowledge" OR all:"MPC" OR all:"settlement" OR all:"collateral" OR all:"fully homomorphic encryption"',
+                days=days,
+                max_results=80,
+            ),
+        )
+    )
+
+    ensure(
+        ConnectorSpec(
+            name="ecb_rss",
+            source_name="ECB",
+            source_tier=1,
+            signal_type="regulatory",
+            fetch=lambda days=365: fetch_rss("https://www.ecb.europa.eu/rss/press.html", days=days),
+        )
+    )
+
+    ensure(
+        ConnectorSpec(
+            name="bis_rss",
+            source_name="BIS",
+            source_tier=1,
+            signal_type="regulatory",
+            fetch=lambda days=365: fetch_rss("https://www.bis.org/doclist/rss.htm", days=days),
+        )
+    )
+
+    ensure(
         ConnectorSpec(
             name="a16z_rss",
             source_name="a16z",
@@ -22,7 +65,6 @@ def register_default_connectors():
             fetch=lambda days=365: fetch_rss("https://a16z.com/feed/", days=days),
         )
     )
-
 
 def movement_history_impacts(movement_id: int):
     from database import get_session
