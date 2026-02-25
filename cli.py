@@ -62,7 +62,7 @@ def register_default_connectors():
             source_name="a16z",
             source_tier=2,
             signal_type="capital",
-            fetch=lambda days=365: fetch_rss("https://a16z.com/feed/", days=days),
+            fetch=lambda days=365: fetch_rss("https://www.a16z.news/feed", days=days),
         )
     )
 

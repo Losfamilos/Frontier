@@ -1,140 +1,185 @@
-import json
-import math
-from datetime import datetime, timedelta, timezone
+from __future__ import annotations
+
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
 
-from config import settings
 
-
-def _log_norm(n: int, max_n: int = 20) -> float:
-    # 0..1
-    return min(1.0, math.log(1 + n) / math.log(1 + max_n))
+def _as_dt(v) -> datetime | None:
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, str):
+        try:
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except Exception:
+            return None
+    return None
 
 
 def compute_component_scores(events: List[Dict[str, Any]]) -> Dict[str, float]:
     """
-    events: list of dict with keys: signal_type, source_tier, date (datetime)
-    returns A..E in 0..1 (simple v1 heuristics)
+    Turn raw events into 0–100 component signals.
+    We keep it simple + deterministic (board-grade explainability).
     """
-    # Count per signal type, tier-boost for Tier 1
-    counts = {k: 0 for k in ["research", "capital", "regulatory", "infra", "cross"]}
-    tier1_bonus = {k: 0 for k in counts}
-    for e in events:
-        st = e["signal_type"]
-        counts[st] += 1
-        if int(e.get("source_tier", 3)) == 1:
-            tier1_bonus[st] += 1
+    n = len(events) or 1
 
-    # Simple saturation curves
-    def sat(c):
-        return 1 - math.exp(-c / 4.0)  # quickly saturate
-
-    A = min(1.0, sat(counts["research"]) + 0.10 * sat(tier1_bonus["research"]))
-    B = min(1.0, sat(counts["capital"]) + 0.15 * sat(tier1_bonus["capital"]))
-    C = min(1.0, sat(counts["regulatory"]) + 0.20 * sat(tier1_bonus["regulatory"]))
-    D = min(1.0, sat(counts["infra"]) + 0.20 * sat(tier1_bonus["infra"]))
-    E = min(1.0, sat(counts["cross"]) + 0.10 * sat(tier1_bonus["cross"]))
-
-    return {
-        "research_momentum": A,
-        "capital_momentum": B,
-        "reg_momentum": C,
-        "infra_deploy": D,
-        "cross_adoption": E,
+    # normalize signal_type buckets
+    buckets = {
+        "research_momentum": 0,
+        "capital_momentum": 0,
+        "reg_momentum": 0,
+        "infra_deploy": 0,
+        "cross_adoption": 0,
     }
+
+    for e in events:
+        st = (e.get("signal_type") or "").lower()
+        if st in ("research", "research_standards"):
+            buckets["research_momentum"] += 1
+        elif st in ("capital", "capital_flows_markets", "markets"):
+            buckets["capital_momentum"] += 1
+        elif st in ("regulatory", "regulatory_policy", "policy"):
+            buckets["reg_momentum"] += 1
+        elif st in ("infra", "technology", "technology_ai_infra", "cyber", "cyber_fraud_resilience"):
+            buckets["infra_deploy"] += 1
+        else:
+            buckets["cross_adoption"] += 1
+
+    # convert counts -> 0..100 (share-based)
+    out: Dict[str, float] = {}
+    for k, c in buckets.items():
+        out[k] = round(100.0 * (c / n), 2)
+
+    return out
 
 
 def compute_impact(components: Dict[str, float]) -> float:
-    A = components["research_momentum"]
-    B = components["capital_momentum"]
-    C = components["reg_momentum"]
-    D = components["infra_deploy"]
-    E = components["cross_adoption"]
-    impact = 100.0 * (
-        settings.w_research * A
-        + settings.w_capital * B
-        + settings.w_regulatory * C
-        + settings.w_infra * D
-        + settings.w_cross * E
-    )
-    return round(impact, 2)
+    """
+    Impact is weighted “so what” — tuned to prefer cross-signal + binding forces.
+    """
+    w = {
+        "research_momentum": 0.20,
+        "capital_momentum": 0.25,
+        "reg_momentum": 0.25,
+        "infra_deploy": 0.20,
+        "cross_adoption": 0.10,
+    }
+    score = 0.0
+    for k, weight in w.items():
+        score += weight * float(components.get(k, 0.0))
+
+    return round(score, 2)
 
 
-def compute_confidence(events: List[Dict[str, Any]], components: Dict[str, float]) -> Tuple[float, str, Dict[str, Any]]:
-    n_sources = len({e["url"] for e in events if e.get("url")})
-    breadth = _log_norm(n_sources, 20)
-    diversity = sum(1 for k in components.values() if k > 0.2) / 5.0
-    confidence = 0.6 * breadth + 0.4 * diversity
-    if confidence >= 0.70:
-        label = "High"
-    elif confidence >= 0.45:
-        label = "Medium"
+def compute_confidence(
+    events: List[Dict[str, Any]],
+    components: Dict[str, float],
+) -> Tuple[float, str, Dict[str, Any]]:
+    """
+    Confidence = “can we defend this in a boardroom?”
+    Uses: source diversity + tier1 presence + volume.
+    """
+    sources = set()
+    tier1 = 0
+    for e in events:
+        src = e.get("source_name") or ""
+        if src:
+            sources.add(src)
+        if int(e.get("source_tier") or 3) == 1:
+            tier1 += 1
+
+    n = len(events)
+    src_div = min(1.0, (len(sources) / 6.0))  # saturates at 6 unique sources
+    tier1_share = (tier1 / n) if n else 0.0
+    vol = min(1.0, (n / 25.0))  # saturates at 25 events
+
+    conf = 100.0 * (0.45 * src_div + 0.40 * tier1_share + 0.15 * vol)
+    conf = round(conf, 2)
+
+    if conf >= 70:
+        label = "high"
+    elif conf >= 45:
+        label = "medium"
     else:
-        label = "Low"
-    return round(confidence, 3), label, {"n_sources": n_sources, "breadth": breadth, "diversity": diversity}
+        label = "low"
+
+    meta = {
+        "n_events": n,
+        "unique_sources": len(sources),
+        "tier1_count": tier1,
+        "tier1_share": round(tier1_share, 3),
+    }
+    return conf, label, meta
 
 
-def compute_acceleration(events: List[Dict[str, Any]], baseline_counts: Dict[str, float]) -> Tuple[float, str, Dict[str, Any]]:
+def compute_acceleration(
+    events: List[Dict[str, Any]],
+    baseline90,  # BaselineCounts or (recent_90, baseline_90)
+) -> Tuple[float, str, Dict[str, Any]]:
     """
-    baseline_counts: avg count per 90d for each signal_type (from last 12m)
+    Acceleration compares last-90-days vs prior-90-days baseline (90–180d ago).
+    Returns:
+      - accel_raw (0..100-ish)
+      - arrow: "↑" "→" "↓"
+      - meta with ratio + counts
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     cutoff_90 = now - timedelta(days=90)
 
+    recent_90 = 0
     for e in events:
-    d = e["date"]
-    # tolerate naive datetimes (assume UTC)
-    if getattr(d, "tzinfo", None) is None:
-        d = d.replace(tzinfo=timezone.utc)
-    if d.astimezone(timezone.utc) >= cutoff_90:
-        last90[e["signal_type"]] += 1
+        d = _as_dt(e.get("date"))
+        if not d:
+            continue
+        if d >= cutoff_90:
+            recent_90 += 1
 
-    ratios = []
-    ratio_detail = {}
-    for k in baseline_counts:
-        r = (last90[k] + 1.0) / (baseline_counts[k] + 1.0)
-        ratios.append(r)
-        ratio_detail[k] = {"last90": last90[k], "baseline90": baseline_counts[k], "ratio": round(r, 3)}
+    # baseline90 can be BaselineCounts (iterable) or dict-like
+    baseline_90 = 0.0
+    try:
+        r, b = baseline90  # __iter__
+        baseline_90 = float(b)
+    except Exception:
+        baseline_90 = float(getattr(baseline90, "baseline_90", 0.0) or 0.0)
 
-    ratios_sorted = sorted(ratios)
-    median = ratios_sorted[len(ratios_sorted) // 2]
-    if median >= 2.0:
-        arrow = "↑↑"
-    elif median >= 1.3:
+    ratio = (recent_90 + 1.0) / (baseline_90 + 1.0)
+
+    if ratio >= 1.35:
         arrow = "↑"
-    elif median >= 0.8:
-        arrow = "→"
-    else:
+    elif ratio <= 0.75:
         arrow = "↓"
-    return round(median, 3), arrow, ratio_detail
+    else:
+        arrow = "→"
+
+    # scale ratio into a bounded-ish score
+    accel_raw = 50.0 + 25.0 * (ratio - 1.0)
+    accel_raw = max(0.0, min(100.0, accel_raw))
+
+    meta = {
+        "recent_90": int(recent_90),
+        "baseline_90": float(round(baseline_90, 2)),
+        "accel_ratio": float(round(ratio, 3)),
+    }
+    return round(accel_raw, 2), arrow, meta
 
 
 def stabilize_with_persistence(impact: float, persistence: float) -> float:
-    # max +15% lift
-    stabilized = impact * (0.85 + 0.15 * persistence)
+    """
+    Persistence dampens one-off spikes.
+    """
+    p = max(0.0, min(1.0, float(persistence)))
+    stabilized = (0.65 * float(impact)) + (0.35 * float(impact) * (0.5 + 0.5 * p))
     return round(stabilized, 2)
 
 
-def compute_persistence(movement_history_impacts: List[float], threshold: float = 50.0, window_quarters: int = 4) -> float:
-    # fraction of quarters in last window where impact >= threshold
-    if not movement_history_impacts:
-        return 0.0
-    last = movement_history_impacts[-window_quarters:]
-    hits = sum(1 for x in last if x >= threshold)
-    return round(hits / float(window_quarters), 3)
-
-
-def audit_payload(components, impact, conf_meta, accel_meta) -> Dict[str, Any]:
+def audit_payload(
+    components: Dict[str, float],
+    impact: float,
+    conf_meta: Dict[str, Any],
+    accel_meta: Dict[str, Any],
+) -> Dict[str, Any]:
     return {
-        "weighting": {
-            "research": settings.w_research,
-            "capital": settings.w_capital,
-            "regulatory": settings.w_regulatory,
-            "infra": settings.w_infra,
-            "cross": settings.w_cross,
-        },
         "components": components,
-        "impact": impact,
+        "impact": float(impact),
         "confidence_meta": conf_meta,
         "acceleration_meta": accel_meta,
     }
