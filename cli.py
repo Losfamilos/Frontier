@@ -9,10 +9,6 @@ def register_default_connectors():
     """
     Keep this idempotent-ish: if registry already has connectors, don't double register.
     """
-    from connectors.registry import list_connectors
-
-    if list_connectors():
-        return
 
     from connectors.arxiv import fetch_arxiv
     from connectors.registry import ConnectorSpec, register
