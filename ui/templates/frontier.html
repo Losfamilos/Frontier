@@ -1,81 +1,79 @@
 {% extends "base.html" %}
-
 {% block content %}
-<div class="container">
 
+<div class="page">
   <div class="page-header">
-    <div>
-      <h1 class="page-title">{% if mode == "board" %}Board Brief{% else %}Frontier Watchlist{% endif %}</h1>
-      <p class="page-subtitle">
-        Board-grade themes with evidence and questions. Data source: /api/frontier/themes
-      </p>
-    </div>
-
-    <div class="page-actions">
-      <a class="btn" href="/">Dashboard</a>
-      <a class="btn" href="/history">History</a>
-    </div>
+    <h1>Frontier Watchlist</h1>
+    <p class="muted">Board-grade themes with evidence and questions. Data source: <code>/api/frontier/themes</code></p>
   </div>
 
-  {% if not frontier or not frontier.get("items") %}
-    <div class="card">
-      <div class="card-body">
-        <p>No frontier briefs yet. Run:</p>
-        <pre>python -u cli.py ingest --days 90
-python -u cli.py build --days 90
-python -u cli.py snapshot</pre>
-      </div>
-    </div>
-  {% else %}
+  <div id="frontier-status" class="card" style="margin:12px 0;">
+    Loading frontier briefs…
+  </div>
 
-    {% for t in frontier["items"] %}
-      <div class="card mb">
-        <div class="card-header">
-          <div class="kicker">Theme</div>
-          <div class="card-title">
-            {{ t["theme"] }}
-            <span class="pill">{{ t["score_label"] if t.get("score_label") else "" }}</span>
-          </div>
-          <div class="meta">
-            Score: {{ "%.2f"|format(t["score"]) }} |
-            First seen: {{ t.get("first_seen","?") }} |
-            Accel (90/365): {{ t.get("accel_ratio","?") }} |
-            Channels: {{ (t.get("channels") or [])|join(", ") }}
-          </div>
-        </div>
-
-        <div class="card-body">
-          {% if t.get("why_now") %}
-            <h3>Why now</h3>
-            <p>{{ t["why_now"] }}</p>
-          {% endif %}
-
-          {% if t.get("board_question") %}
-            <h3>Board question</h3>
-            <p><strong>{{ t["board_question"] }}</strong></p>
-          {% endif %}
-
-          {% if t.get("evidence") %}
-            <h3>Evidence</h3>
-            <ul class="evidence">
-              {% for ev in t["evidence"] %}
-                <li>
-                  <span class="e-date">{{ ev.get("date","") }}</span>
-                  <span class="e-source">{{ ev.get("source","") }}</span>
-                  —
-                  {% if ev.get("url") %}
-                    <a href="{{ ev["url"] }}" target="_blank" rel="noopener">{{ ev.get("title","(no title)") }}</a>
-                  {% else %}
-                    {{ ev.get("title","(no title)") }}
-                  {% endif %}
-                </li>
-              {% endfor %}
-            </ul>
-          {% endif %}
-        </div>
-      </div>
-    {% endfor %}
-
-  {% endif %}
+  <div id="frontier-list" class="grid"></div>
 </div>
+
+<script>
+(async () => {
+  const status = document.getElementById("frontier-status");
+  const list = document.getElementById("frontier-list");
+
+  function esc(s){ return (s ?? "").toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  try {
+    const url = "/api/frontier/themes?top_n=6&events_per_theme=5";
+    const r = await fetch(url, { cache: "no-store" });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+
+    const items = data.items || [];
+    status.innerHTML = `<div><b>Loaded</b> ${items.length} frontier briefs.</div>`;
+
+    if (!items.length) {
+      list.innerHTML = `<div class="card">No frontier briefs yet. Run: <code>bash scripts/bootstrap.sh</code></div>`;
+      return;
+    }
+
+    list.innerHTML = items.map(it => {
+      const ev = (it.evidence || []).slice(0, 5).map(e => `
+        <li>
+          <span class="muted">${esc(e.date)} · ${esc(e.source_name)} (tier ${esc(e.source_tier)})</span><br/>
+          <a href="${esc(e.url)}" target="_blank" rel="noreferrer">${esc(e.title)}</a>
+        </li>
+      `).join("");
+
+      return `
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+            <div>
+              <div style="font-weight:800;font-size:16px;">${esc(it.theme)}</div>
+              <div class="muted">First seen: ${esc(it.first_seen)} · 90d: ${esc(it.count_90d)} · 365d: ${esc(it.count_365d)} · accel: ${esc(it.accel_ratio)}</div>
+            </div>
+            <div style="font-weight:800;">${esc(it.score)}</div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <div class="muted"><b>Why now:</b> ${esc(it.why_now)}</div>
+            <div style="margin-top:6px;"><b>Board question:</b> ${esc(it.board_question)}</div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <div class="muted"><b>Channels:</b> ${(it.channels||[]).map(esc).join(", ")}</div>
+          </div>
+
+          <div style="margin-top:10px;">
+            <b>Evidence</b>
+            <ul style="margin-top:6px; padding-left:18px;">${ev}</ul>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+  } catch (e) {
+    status.innerHTML = `<div class="card"><b>Failed to load frontier</b>: ${esc(e.message)}</div>`;
+  }
+})();
+</script>
+
 {% endblock %}
