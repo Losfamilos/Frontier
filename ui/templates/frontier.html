@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{% if mode == "board" %}Board Brief{% else %}Frontier Watchlist{% endif %}</h1>
+      <p class="page-subtitle">
+        Board-grade themes with evidence and questions. Data source: /api/frontier/themes
+      </p>
+    </div>
+
+    <div class="page-actions">
+      <a class="btn" href="/">Dashboard</a>
+      <a class="btn" href="/history">History</a>
+    </div>
+  </div>
+
+  {% if not frontier or not frontier.get("items") %}
+    <div class="card">
+      <div class="card-body">
+        <p>No frontier briefs yet. Run:</p>
+        <pre>python -u cli.py ingest --days 90
+python -u cli.py build --days 90
+python -u cli.py snapshot</pre>
+      </div>
+    </div>
+  {% else %}
+
+    {% for t in frontier["items"] %}
+      <div class="card mb">
+        <div class="card-header">
+          <div class="kicker">Theme</div>
+          <div class="card-title">
+            {{ t["theme"] }}
+            <span class="pill">{{ t["score_label"] if t.get("score_label") else "" }}</span>
+          </div>
+          <div class="meta">
+            Score: {{ "%.2f"|format(t["score"]) }} |
+            First seen: {{ t.get("first_seen","?") }} |
+            Accel (90/365): {{ t.get("accel_ratio","?") }} |
+            Channels: {{ (t.get("channels") or [])|join(", ") }}
+          </div>
+        </div>
+
+        <div class="card-body">
+          {% if t.get("why_now") %}
+            <h3>Why now</h3>
+            <p>{{ t["why_now"] }}</p>
+          {% endif %}
+
+          {% if t.get("board_question") %}
+            <h3>Board question</h3>
+            <p><strong>{{ t["board_question"] }}</strong></p>
+          {% endif %}
+
+          {% if t.get("evidence") %}
+            <h3>Evidence</h3>
+            <ul class="evidence">
+              {% for ev in t["evidence"] %}
+                <li>
+                  <span class="e-date">{{ ev.get("date","") }}</span>
+                  <span class="e-source">{{ ev.get("source","") }}</span>
+                  —
+                  {% if ev.get("url") %}
+                    <a href="{{ ev["url"] }}" target="_blank" rel="noopener">{{ ev.get("title","(no title)") }}</a>
+                  {% else %}
+                    {{ ev.get("title","(no title)") }}
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+
+  {% endif %}
+</div>
+{% endblock %}

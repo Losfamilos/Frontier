@@ -150,6 +150,15 @@ def history(request: Request):
     )
 
 
+
+@app.get("/frontier", response_class=HTMLResponse)
+def frontier_page(request: Request):
+    return render(
+        "frontier.html",
+        request=request,
+        app_name=settings.app_name,
+    )
+
 def run_server(host: str = "127.0.0.1", port: int = 8000):
     uvicorn.run("app:app", host=host, port=port, reload=False)
 
