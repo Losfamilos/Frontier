@@ -1,218 +1,146 @@
-# engine/ingest.py
 from __future__ import annotations
 
+import hashlib
 import inspect
-from datetime import timezone
-from typing import Any, Dict, List, Sequence, Set
+from datetime import datetime, timezone
+from typing import Iterable, List
 
 from sqlmodel import select
 
 from database import get_session
-from engine.dedup import dedup_items
-from models import Event, EventSourceRef
+from models import Event
 
 
-def normalize_item(item: Dict[str, Any], source_name: str, source_tier: int, signal_type: str) -> Dict[str, Any]:
-    dt = item["date"]
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+def _stable_event_uid(source_name: str, url: str | None, title: str | None, date: datetime | None) -> str:
+    d = ""
+    if isinstance(date, datetime):
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=timezone.utc)
+        d = date.astimezone(timezone.utc).strftime("%Y-%m-%d")
+    base = "|".join(
+        [
+            (source_name or "").strip().lower(),
+            (url or "").strip(),
+            (title or "").strip().lower(),
+            d,
+        ]
+    )
+    return hashlib.sha1(base.encode("utf-8")).hexdigest()
 
-    title = (item.get("title") or "").strip()
-    url = (item.get("url") or "").strip()
-    raw_text = (item.get("raw_text") or "").strip()
 
-    # v1 summary = first 240 chars (deterministic); can upgrade later.
-    summary = raw_text or title
-    summary = " ".join(summary.split())[:240]
+def _parse_date(v) -> datetime | None:
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, str):
+        try:
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except Exception:
+            return None
+    return None
+
+
+def normalize_item(item: dict, source_name: str, source_tier: int, signal_type: str) -> dict:
+    title = item.get("title") or item.get("headline") or item.get("name") or ""
+    url = item.get("url") or item.get("link")
+    date = _parse_date(item.get("date") or item.get("published") or item.get("created_at"))
+
+    # DB has NOT NULL on event.summary
+    summary = item.get("summary")
+    if summary is None:
+        summary = item.get("description") or item.get("abstract") or ""
+    if summary is None:
+        summary = ""
+
+    event_uid = item.get("event_uid")
+    if not event_uid:
+        event_uid = _stable_event_uid(source_name, url, title, date)
 
     return {
-        "event_uid": item["event_uid"],
-        "date": dt,
+        "event_uid": event_uid,
+        "title": (title or "").strip(),
+        "summary": summary.strip() if isinstance(summary, str) else "",
+        "url": url,
+        "date": date,
         "source_name": source_name,
         "source_tier": int(source_tier),
         "signal_type": signal_type,
-        "title": title,
-        "summary": summary,
-        "url": url,
-        "raw_text": raw_text,
-        "entities": None,
-        "theme_hint": item.get("theme_hint"),
     }
 
 
-def _configure_sqlite_pragmas(session) -> None:
+def _fetch_is_days_only(fetch) -> bool:
     """
-    Helps with concurrency/locking in SQLite (Codespaces).
-    Safe no-op-ish for other DBs: if it fails, we ignore.
+    Only run connectors that can be called as fetch(days=...).
+    If fetch requires other required positional args (e.g. feed_url), skip it.
     """
     try:
-        session.exec("PRAGMA journal_mode=WAL;")
-        session.exec("PRAGMA busy_timeout=5000;")  # ms
+        sig = inspect.signature(fetch)
     except Exception:
-        pass
+        return True
+
+    for p in sig.parameters.values():
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+            if p.name == "days":
+                continue
+            if p.default is inspect._empty:
+                return False
+    return True
 
 
-def _chunked(seq: Sequence[Dict[str, Any]], size: int) -> List[List[Dict[str, Any]]]:
-    return [list(seq[i : i + size]) for i in range(0, len(seq), size)]
-
-
-def _existing_event_uids(session, uids: List[str]) -> Set[str]:
-    if not uids:
-        return set()
-    rows = session.exec(select(Event.event_uid).where(Event.event_uid.in_(uids))).all()
-    return set(rows)
-
-
-def upsert_events(items: List[Dict[str, Any]], batch_size: int = 250) -> int:
-    """
-    Fast path:
-    - prefetch existing event_uids per batch
-    - insert new events in bulk, commit once
-    - insert refs in bulk, commit once
-    """
-    if not items:
-        return 0
-
-    inserted_total = 0
+def ingest_from_connectors(connectors: Iterable, days: int = 365) -> int:
+    inserted = 0
 
     with get_session() as session:
-        _configure_sqlite_pragmas(session)
+        for i, spec in enumerate(connectors, start=1):
+            name = getattr(spec, "name", "unknown")
+            src = getattr(spec, "source_name", "unknown")
+            tier = getattr(spec, "source_tier", 3)
+            sig = getattr(spec, "signal_type", "research")
+            fetch = getattr(spec, "fetch", None)
 
-        for batch in _chunked(items, batch_size):
-            uids = [it["event_uid"] for it in batch]
-            existing = _existing_event_uids(session, uids)
+            if not callable(fetch):
+                print(f"[ingest] skipping template connector {name} (no fetch)")
+                continue
 
-            new_events: List[Event] = []
-            for it in batch:
-                if it["event_uid"] in existing:
+            if not _fetch_is_days_only(fetch):
+                print(f"[ingest] skipping template connector {name} (requires args)")
+                continue
+
+            print(f"[ingest] ({i}/{len(list(connectors)) if hasattr(connectors,'__len__') else '?'}) {name} — {src} (tier {tier}, {sig})")
+
+            try:
+                items = fetch(days=days)
+            except Exception as e:
+                print(f"[ingest] ⚠️  {name} failed: {e}")
+                continue
+
+            print(f"[ingest] {name}: fetched {len(items)} items")
+
+            normalized: List[dict] = []
+            for it in items:
+                try:
+                    normalized.append(normalize_item(it, src, tier, sig))
+                except Exception as e:
+                    print(f"[ingest] normalize failed ({name}): {e}")
+
+            for item in normalized:
+                if not isinstance(item.get("date"), datetime):
                     continue
 
-                new_events.append(
-                    Event(
-                        event_uid=it["event_uid"],
-                        date=it["date"],
-                        source_name=it["source_name"],
-                        source_tier=it["source_tier"],
-                        signal_type=it["signal_type"],
-                        title=it["title"],
-                        summary=it["summary"],
-                        url=it["url"],
-                        raw_text=it.get("raw_text"),
-                        entities=it.get("entities"),
-                        theme_hint=it.get("theme_hint"),
-                    )
-                )
+                # Store naive UTC in DB
+                d = item["date"]
+                if d.tzinfo is not None:
+                    d = d.astimezone(timezone.utc).replace(tzinfo=None)
+                item["date"] = d
 
-            if not new_events:
-                continue
+                with session.no_autoflush:
+                    exists = session.exec(select(Event).where(Event.event_uid == item["event_uid"])).first()
+                if exists:
+                    continue
 
-            session.add_all(new_events)
-            session.commit()
+                session.add(Event(**item))
+                inserted += 1
 
-            # Refresh IDs so we can create EventSourceRef rows.
-            new_refs: List[EventSourceRef] = []
-            for ev in new_events:
-                session.refresh(ev)
-                new_refs.append(
-                    EventSourceRef(
-                        event_id=ev.id,
-                        source_name=ev.source_name,
-                        source_tier=ev.source_tier,
-                        url=ev.url,
-                    )
-                )
+        session.commit()
 
-            session.add_all(new_refs)
-            session.commit()
-
-            inserted_total += len(new_events)
-
-    return inserted_total
-
-
-def _required_non_default_args(fn) -> int:
-    """
-    Count required args (no defaults). Used to skip template/raw connectors like:
-      - fetch_rss(feed_url, days=...)
-      - fetch_arxiv(query, days=..., max_results=...)
-    while still running baked connectors like:
-      - lambda days=...: fetch_rss(ECB_URL, days)
-    """
-    if fn is None:
-        return 0
-    try:
-        sig = inspect.signature(fn)
-    except (TypeError, ValueError):
-        return 0
-
-    required = 0
-    for p in sig.parameters.values():
-        if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
-            continue
-        if p.default is inspect._empty:
-            required += 1
-    return required
-
-
-def ingest_from_connectors(connector_specs, days: int = 365, batch_size: int = 250) -> int:
-    """
-    Runs connectors one-by-one with:
-    - progress logging
-    - per-connector exception isolation
-    - streaming normalize + batch insert
-
-    Keeps raw/template connectors registered for Scout, but ingestion only runs
-    connectors whose fetch() is runnable without extra required args.
-    """
-    total_inserted = 0
-
-    for idx, spec in enumerate(connector_specs, start=1):
-        name = getattr(spec, "name", "<unnamed>")
-        src = getattr(spec, "source_name", "<source>")
-        tier = getattr(spec, "source_tier", 0)
-        sig = getattr(spec, "signal_type", "<signal>")
-
-        # TEMP: SWIFT RSS can hang behind CDN. Skip for now.
-        if "swift" in name.strip().lower():
-            print("[ingest] skipping swift (temporary)", flush=True)
-            continue
-
-        # Skip template/raw connectors that require args (used by Scout)
-        req = _required_non_default_args(getattr(spec, "fetch", None))
-        if req > 0:
-            print(f"[ingest] skipping template connector {name} (requires {req} args)", flush=True)
-            continue
-
-        print(f"[ingest] ({idx}/{len(connector_specs)}) {name} — {src} (tier {tier}, {sig})", flush=True)
-
-        try:
-            fetched = spec.fetch(days=days) or []
-        except TypeError:
-            # Some connectors may not accept days; retry without it
-            try:
-                fetched = spec.fetch() or []
-            except Exception as e:
-                print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
-                continue
-        except Exception as e:
-            print(f"[ingest] ⚠️  {name} failed: {type(e).__name__}: {e}", flush=True)
-            continue
-
-        print(f"[ingest] {name}: fetched {len(fetched)} items", flush=True)
-
-        normalized: List[Dict[str, Any]] = []
-        for it in fetched:
-            it["source_name"] = src
-            it["source_tier"] = tier
-            it["signal_type"] = sig
-            normalized.append(normalize_item(it, src, tier, sig))
-
-        normalized = dedup_items(normalized)
-
-        inserted = upsert_events(normalized, batch_size=batch_size)
-        total_inserted += inserted
-
-        print(f"[ingest] {name}: inserted {inserted} new events", flush=True)
-
-    print(f"[ingest] done. total inserted={total_inserted}", flush=True)
-    return total_inserted
+    print(f"[ingest] done. total inserted={inserted}")
+    return inserted
