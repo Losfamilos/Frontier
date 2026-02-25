@@ -1,0 +1,221 @@
+version: 1
+channels:
+  regulatory_policy:
+    title: Regulatory & Policy
+    sources:
+    - name: EBA News
+      type: rss
+      url: https://www.eba.europa.eu/rss.xml
+      tier: 1
+      region: EU
+      tags:
+      - banking
+      - supervision
+    - name: European Commission Press Corner
+      type: rss
+      url: https://ec.europa.eu/commission/presscorner/api/rss?language=en
+      tier: 1
+      region: EU
+      tags:
+      - policy
+      - regulation
+    - name: FINRA News Releases & Speeches
+      type: rss
+      url: http://feeds.finra.org/FINRANews
+      tier: 1
+      region: US
+      tags:
+      - enforcement
+      - supervision
+      - sro
+  central_banking_macro:
+    title: Central Banking & Macro Liquidity
+    sources:
+    - name: BIS Press releases
+      type: rss
+      url: https://www.bis.org/doclist/all_pressrels.rss
+      tier: 1
+      region: global
+      tags:
+      - bis
+      - central_banks
+    - name: Federal Reserve Press Releases
+      type: rss
+      url: https://www.federalreserve.gov/feeds/press_all.xml
+      tier: 1
+      region: US
+      tags:
+      - rates
+      - liquidity
+    - name: Bank of England News
+      type: rss
+      url: https://www.bankofengland.co.uk/rss/news
+      tier: 1
+      region: UK
+      tags:
+      - policy
+      - financial_stability
+  capital_flows_markets:
+    title: Capital Flows & Markets
+    sources:
+    - name: SEC Press Releases (RSS)
+      type: rss
+      url: https://www.sec.gov/news/pressreleases.rss
+      tier: 1
+      region: US
+      tags:
+      - markets
+      - enforcement
+    - name: CME Group Press Releases (RSS hub)
+      type: rss
+      url: https://www.cmegroup.com/rss/pressreleases.xml
+      tier: 2
+      region: US
+      tags:
+      - derivatives
+      - markets
+    - name: DTCC Press Releases (RSS)
+      type: rss
+      url: https://www.dtcc.com/rss-feeds/news/press-releases
+      tier: 1
+      region: global
+      tags:
+      - market_infra
+      - clearing
+      - settlement
+  competitive_moves_fs:
+    title: Competitive Moves (Financial Services)
+    sources:
+    - name: JPMorgan Chase News
+      type: rss
+      url: https://www.jpmorganchase.com/rss/newsroom.rss
+      tier: 2
+      region: US
+      tags:
+      - bank
+      - strategy
+    - name: BBVA The Mind Bank (RSS)
+      type: rss
+      url: https://www.bbva.com/en/rss/bbva-the-mind-bank/
+      tier: 2
+      region: EU
+      tags:
+      - bank
+      - digital
+    - name: Stripe News
+      type: rss
+      url: https://stripe.com/blog/rss.xml
+      tier: 2
+      region: global
+      tags:
+      - payments
+      - product
+  technology_ai_infra:
+    title: Technology & AI Infrastructure
+    sources:
+    - name: AWS News Blog
+      type: rss
+      url: https://aws.amazon.com/blogs/aws/feed/
+      tier: 2
+      region: global
+      tags:
+      - cloud
+      - platform
+    - name: Google Cloud Blog
+      type: rss
+      url: https://cloudblog.withgoogle.com/rss/
+      tier: 2
+      region: global
+      tags:
+      - cloud
+      - ai
+    - name: OpenAI Blog
+      type: rss
+      url: https://openai.com/blog/rss.xml
+      tier: 2
+      region: global
+      tags:
+      - ai
+      - agents
+  cyber_fraud_resilience:
+    title: Cyber, Fraud & Operational Resilience
+    sources:
+    - name: CISA Alerts
+      type: rss
+      url: https://www.cisa.gov/cybersecurity-advisories/all.xml
+      tier: 1
+      region: US
+      tags:
+      - vulns
+      - alerts
+    - name: US-CERT (CISA) News
+      type: rss
+      url: https://www.cisa.gov/uscert/ncas/alerts.xml
+      tier: 1
+      region: US
+      tags:
+      - incidents
+      - alerts
+    - name: NCSC UK News
+      type: rss
+      url: https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml
+      tier: 1
+      region: UK
+      tags:
+      - cyber
+      - resilience
+  cross_industry_signals:
+    title: Cross-Industry Signals
+    sources:
+    - name: Microsoft Industry Blog
+      type: rss
+      url: https://blogs.microsoft.com/feed/
+      tier: 2
+      region: global
+      tags:
+      - enterprise
+      - automation
+    - name: Shopify Engineering (Atom)
+      type: rss
+      url: https://shopifyengineering.myshopify.com/blogs/engineering.atom
+      tier: 2
+      region: global
+      tags:
+      - platform
+      - ops
+      - engineering
+    - name: UPS Newsroom
+      type: rss
+      url: https://about.ups.com/us/en/newsroom/rss.xml
+      tier: 2
+      region: US
+      tags:
+      - logistics
+      - automation
+  research_standards:
+    title: Research & Standards
+    sources:
+    - name: arXiv cs.AI
+      type: rss
+      url: https://export.arxiv.org/rss/cs.AI
+      tier: 2
+      region: global
+      tags:
+      - research
+      - ai
+    - name: arXiv cs.CR
+      type: rss
+      url: https://export.arxiv.org/rss/cs.CR
+      tier: 2
+      region: global
+      tags:
+      - research
+      - security
+    - name: RFC Editor (Recent RFCs RSS)
+      type: rss
+      url: https://www.rfc-editor.org/rfcrss.xml
+      tier: 1
+      region: global
+      tags:
+      - standards
+      - internet
